@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本地账本 · 微信 / 支付宝流水</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232f6df6'/%3E%3Ctext x='32' y='45' font-size='36' text-anchor='middle' fill='white' font-family='sans-serif'%3E%E6%9C%AC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">本</span>
+    <div class="brand-text">
+      <h1>本地账本</h1>
+      <p>微信 / 支付宝账单 → 日月年流水 · 每笔支出前的余额反推</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span id="saveBadge" class="badge">准备中…</span>
+    <button class="btn small ghost" id="btnDemo">载入示例</button>
+    <button class="btn small ghost" id="btnMenu">导出 ▾</button>
+    <button class="btn small ghost" id="btnBackup">恢复备份</button>
+    <button class="btn small ghost danger" id="btnReset">清空</button>
+  </div>
+</header>
+
+<div class="menu" id="exportMenu">
+  <div class="menu-title">导出</div>
+  <button data-export="detail">明细流水 CSV（含余额）</button>
+  <button data-export="summary">分组汇总 CSV</button>
+  <button data-export="daily">日 / 月 / 年 三张汇总 CSV</button>
+  <div class="sep"></div>
+  <button data-export="backup">完整备份 JSON</button>
+</div>
+
+<main class="layout">
+  <!-- ==================== 侧边栏 ==================== -->
+  <aside class="sidebar">
+
+    <section class="panel">
+      <h2>① 导入账单</h2>
+      <div class="drop" id="dropZone">
+        <div class="drop-icon">⇩</div>
+        <p>把 <b>微信支付账单明细</b>、<b>支付宝账单明细</b> 拖到这里</p>
+        <p class="hint">文件只在本机解析，不会上传到任何服务器</p>
+        <button class="btn small primary" id="btnPick">选择文件…</button>
+        <input type="file" id="fileInput" class="visually-hidden" multiple accept=".csv,.txt,.tsv,.xls">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:9px">
+        <button class="btn small ghost" id="btnManual" style="flex:1">+ 手动记一笔</button>
+      </div>
+      <ul class="filelist" id="fileList"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>② 余额反推</h2>
+      <div class="field">
+        <label>口径</label>
+        <div class="segmented" id="modeSeg">
+          <button data-mode="account" class="on">按账户分别</button>
+          <button data-mode="merged">全部合计</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>基准日（余额对应的日期）</label>
+        <div class="inline-date">
+          <input type="date" id="baseDate">
+          <button class="btn small ghost" id="btnResetBaseDate" title="恢复成账单最后一笔交易的日期">↺ 最后一笔</button>
+        </div>
+      </div>
+      <p class="hint small" id="baseHint"></p>
+      <div class="baselist" id="baseList"></div>
+      <div class="base-total">
+        <span>合计基准余额</span><b id="baseTotal">—</b>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:9px">
+        <button class="btn small ghost" id="btnAddAccount" style="flex:1">+ 添加账户</button>
+        <button class="btn small ghost" id="btnResetBase" style="flex:1">清空余额</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>③ 筛选</h2>
+      <div class="field-row">
+        <div class="field"><label>起始日期</label><input type="date" id="fFrom"></div>
+        <div class="field"><label>结束日期</label><input type="date" id="fTo"></div>
+      </div>
+      <div class="field"><label>关键词</label><input type="text" id="fKeyword" placeholder="对方 / 商品 / 备注 / 单号"></div>
+      <div class="field-row">
+        <div class="field">
+          <label>收支</label>
+          <select id="fDir">
+            <option value="all">全部</option>
+            <option value="in">仅收入</option>
+            <option value="out">仅支出</option>
+            <option value="neutral">不计收支</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>账户</label>
+          <select id="fAccount"><option value="all">全部</option></select>
+        </div>
+      </div>
+      <div class="field">
+        <label>分类</label>
+        <select id="fCategory"><option value="all">全部</option></select>
+      </div>
+      <div class="field">
+        <label>排除关键词（逗号分隔，命中即不计入）</label>
+        <input type="text" id="fExclude" placeholder="例如：还款, 互转, 测试">
+      </div>
+      <button class="btn small ghost" id="btnClearFilter" style="width:100%">重置筛选</button>
+    </section>
+
+    <section class="panel collapsible closed" id="panelQuality">
+      <h2>⑤ 导入质量 <span class="chev">▾</span></h2>
+      <div class="panel-body" id="qualityBody"></div>
+    </section>
+
+    <section class="panel collapsible closed" id="panelRules">
+      <h2>⑥ 规则（分类 / 内部划转） <span class="chev">▾</span></h2>
+      <div class="panel-body" id="rulesBody"></div>
+    </section>
+
+    <section class="panel collapsible closed" id="panelHelp">
+      <h2>说明与常见问题 <span class="chev">▾</span></h2>
+      <div class="panel-body" id="helpBody">
+        <p class="hint"><b>怎么导出账单</b><br>
+        微信：微信 → 我 → 服务 → 钱包 → 账单 → 右上角「…」→ 账单明细 → 常见问题 → 下载账单 → 选「用于个人对账」→ 选时间范围 → 接收账单。<br>
+        支付宝：支付宝 → 我的 → 总览 → 右上角「账单」→ 右上角「…」→ 开具交易流水证明 → 选择时间段 → 导出账单（CSV）。</p>
+        <p class="hint"><b>余额是怎么反推的</b><br>
+        你只需要填"现在还剩多少钱"（基准余额）。账本从最后一笔交易往前倒推：<br>
+        某笔交易<b>前</b>的余额 = 该笔<b>后</b>的余额 − 该笔的资金变动。收入往前推会变少，支出往前推会变多。</p>
+        <p class="hint"><b>基准日</b><br>
+        默认取最后一笔交易的日期。如果你的账单没更新到今天，请把基准日改成"账单覆盖的最后一天"，否则反推出来的余额会偏大。
+        <b>基准日一旦你手动改过就不会再被自动覆盖</b>，想恢复自动点旁边的「↺ 最后一笔」。</p>
+        <p class="hint"><b>同一个文件导了两遍</b><br>
+        账本会比对文件的内容指纹，发现是同一个文件会弹窗提示，默认跳过 —— 重复导入会让收支直接翻一倍。</p>
+        <p class="hint"><b>账本体检</b><br>
+        导入后先看一眼「账本体检」：它会替你找出缺了哪个月的账单、哪个文件重复导了、
+        哪笔"不计收支"没匹配到划转规则、哪笔部分退款金额查不到 —— 这些问题在原始表格里看不出来。</p>
+        <p class="hint"><b>两个口径的区别</b><br>
+        「按账户分别」：每个账户（微信·零钱、微信·××银行卡、支付宝…）各自填余额，各自倒推，最贴近"这笔消费前我零钱里还有多少"。<br>
+        「全部合计」：所有账户合并成一个总资产倒推。</p>
+        <p class="hint"><b>不计收支 / 内部划转</b><br>
+        零钱充值、零钱提现、余额宝转入转出这类行，账单里标的是"不计收支"，它不改变总资产，但会改变某个具体账户。规则表里可以调整它落到哪个账户、什么方向。</p>
+        <p class="hint"><b>数据存在哪</b><br>
+        全部存在这台电脑的浏览器里（IndexedDB），不联网、不上传。换浏览器或清缓存会丢，请定期用「导出 → 完整备份 JSON」存一份。</p>
+      </div>
+    </section>
+
+  </aside>
+
+  <!-- ==================== 主内容 ==================== -->
+  <section class="content">
+
+    <div id="emptyState" class="card">
+      <div class="empty-state">
+        <div class="big">🧾</div>
+        <h3>还没有账本数据</h3>
+        <p>把微信、支付宝的「账单明细」文件拖进左边，账本就会自动生成。</p>
+        <ol>
+          <li>导入账单文件（支持多个，一次全拖进去）</li>
+          <li>在「余额反推」里填上你现在实际有的钱</li>
+          <li>按日 / 月 / 年查看流水，每笔都能看到支出前的余额</li>
+        </ol>
+        <p style="margin-top:14px"><button class="btn small ghost" id="btnDemo2">先看看示例数据长什么样</button></p>
+      </div>
+    </div>
+
+    <div class="kpis" id="kpis" style="display:none"></div>
+
+    <div class="card" id="chartsWrap" style="display:none">
+      <div class="card-head">
+        <h3>图表分析</h3>
+        <span class="hint" id="chartHint"></span>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-box">
+          <h4>支出分类占比</h4>
+          <div class="chart-body">
+            <div id="chartDonut"></div>
+            <ul class="legend" id="donutLegend"></ul>
+          </div>
+        </div>
+        <div class="chart-box">
+          <h4>月度收支趋势</h4>
+          <div id="chartTrend"></div>
+          <div class="legend inline">
+            <span><i class="sw in"></i>收入</span>
+            <span><i class="sw out"></i>支出</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="healthWrap" style="display:none">
+      <div class="card-head">
+        <h3>账本体检</h3>
+        <span class="hint" id="healthHint"></span>
+      </div>
+      <div class="health-score">
+        <div class="score-num" id="healthScore">—</div>
+        <div class="score-bar"><i id="healthBar"></i></div>
+        <div class="score-text" id="healthText"></div>
+      </div>
+      <div id="healthBody"></div>
+    </div>
+
+    <div class="toolbar" id="toolbar" style="display:none">
+      <div class="segmented" id="groupSeg">
+        <button data-g="day">按日</button>
+        <button data-g="month" class="on">按月</button>
+        <button data-g="year">按年</button>
+      </div>
+      <div class="segmented" id="viewSeg">
+        <button data-v="summary" class="on">汇总</button>
+        <button data-v="detail">明细</button>
+        <button data-v="both">汇总+明细</button>
+      </div>
+      <div class="spacer"></div>
+      <span class="hint" id="rangeInfo"></span>
+    </div>
+
+    <div class="warnbox" id="warnBox"></div>
+
+    <div class="card" id="summaryWrap" style="display:none">
+      <div class="card-head">
+        <h3 id="summaryTitle">分组汇总</h3>
+        <span class="hint" id="summaryHint"></span>
+      </div>
+      <div class="table-wrap" id="summaryTable"></div>
+    </div>
+
+    <div class="card" id="detailWrap" style="display:none">
+      <div class="card-head">
+        <h3>流水明细</h3>
+        <span class="hint" id="detailHint"></span>
+      </div>
+      <div class="table-wrap" id="detailTable"></div>
+      <div class="pager" id="pager"></div>
+    </div>
+
+  </section>
+</main>
+
+<div class="overlay" id="dropOverlay"><div class="overlay-inner">松手即可导入账单</div></div>
+<div class="toast" id="toast"></div>
+
+<div class="modal" id="modal">
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<script src="js/rules.js"></script>
+<script src="js/parse.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/health.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/store.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

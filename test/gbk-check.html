@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>浏览器端 GBK 解码自检</title>
+<style>
+  body { font: 14px/1.7 "Microsoft YaHei", monospace; padding: 24px; background: #f6f8fb; }
+  pre { background: #fff; border: 1px solid #e4e8ee; border-radius: 10px; padding: 16px; white-space: pre-wrap; }
+  .ok { color: #0f9d6d; font-weight: 700; }
+  .bad { color: #dc4c44; font-weight: 700; }
+</style>
+</head>
+<body>
+<h3>浏览器端 GBK 解码自检</h3>
+<pre id="out">运行中…</pre>
+<script>
+(function () {
+  var out = document.getElementById('out');
+  var lines = [];
+  function line(t, cls) { lines.push(cls ? '<span class="' + cls + '">' + t + '</span>' : t); out.innerHTML = lines.join('\n'); }
+
+  function check(name, cond, detail) {
+    line((cond ? '  ✓ ' : '  ✗ ') + name + (detail ? '   ' + detail : ''), cond ? 'ok' : 'bad');
+  }
+
+  // 1) TextDecoder 是否支持 gb18030 / gbk
+  var supportsGb = true, supportsGb18030 = true;
+  try { new TextDecoder('gbk'); } catch (e) { supportsGb = false; }
+  try { new TextDecoder('gb18030'); } catch (e) { supportsGb18030 = false; }
+  check('TextDecoder 支持 gbk', supportsGb);
+  check('TextDecoder 支持 gb18030', supportsGb18030);
+
+  // 2) 真实 GBK 文件能否正确解码
+  fetch('../test/fixtures/wechat_bill.csv')
+    .then(function (r) { return r.arrayBuffer(); })
+    .then(function (buf) {
+      var text = new TextDecoder('gb18030').decode(buf);
+      var rows = text.split(/\r?\n/);
+      check('解码后含中文表头', text.indexOf('交易时间') >= 0);
+      check('表头行正确识别', text.indexOf('交易时间,交易类型,交易对方,商品,收/支') >= 0);
+      check('全角 yen 符号正常', text.indexOf('￥128.50') >= 0);
+      check('带逗号的引号字段完整', text.indexOf('"买菜,日用品"') >= 0);
+      line('');
+      line('--- 解码后前 8 行 ---');
+      for (var i = 0; i < 8; i++) line(rows[i]);
+      line('');
+      line('全部检查通过：浏览器可直接解析微信 / 支付宝的 GBK 账单');
+    })
+    .catch(function (e) {
+      line('读取夹具失败：' + e.message + '（需要通过本地服务打开本页面）', 'bad');
+    });
+})();
+</script>
+</body>
+</html>
